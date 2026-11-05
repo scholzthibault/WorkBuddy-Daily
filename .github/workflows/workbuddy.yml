@@ -61,7 +61,6 @@ jobs:
           fi
 
       - name: Run WorkBuddy
-        if: steps.config.outputs.cn == 'true'
         env:
           WORKBUDDY_REFRESH_TOKEN: ${{ secrets.WORKBUDDY_REFRESH_TOKEN }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
@@ -78,7 +77,9 @@ jobs:
           WORKBUDDY_MAKEUP_MAX_PER_RUN: ${{ secrets.WORKBUDDY_MAKEUP_MAX_PER_RUN }}
           WORKBUDDY_ACTIVITY_CHAT_FALLBACK: ${{ secrets.WORKBUDDY_ACTIVITY_CHAT_FALLBACK }}
           WORKBUDDY_NOTIFY: ${{ secrets.WORKBUDDY_NOTIFY }}
-        run: python workbuddy_daily.py
+        run: |
+          python workbuddy_daily.py 2>&1 | tee wb_output.txt
+          exit ${PIPESTATUS[0]}
 
       - name: Run WorkBuddy Intl
         if: ${{ always() && steps.config.outputs.intl == 'true' }}
@@ -95,7 +96,43 @@ jobs:
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           WORKBUDDY_NOTIFY: ${{ secrets.WORKBUDDY_NOTIFY }}
-        run: python workbuddy_intl_daily.py
+        run: |
+          python workbuddy_intl_daily.py 2>&1 | tee wb_intl_output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Telegram 通知（含运行摘要）
+        if: always()
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          if [ -z "$TG_BOT_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
+            echo "未配置 TG_BOT_TOKEN / TG_CHAT_ID，跳过 Telegram 通知"
+            exit 0
+          fi
+          MSG="🌱 WorkBuddy Daily 运行完成
+          run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # 抓取脚本输出尾部（报告在最后），去 ANSI 颜色，压到 3500 字符内
+          if [ -f wb_output.txt ]; then
+            REPORT=$(tail -c 12000 wb_output.txt | sed 's/\x1b\[[0-9;]*m//g' | tail -60)
+            MSG="$MSG
+
+          ===== 国内版报告（尾部） =====
+          $REPORT"
+          fi
+          if [ -f wb_intl_output.txt ]; then
+            IREPORT=$(tail -c 4000 wb_intl_output.txt | sed 's/\x1b\[[0-9;]*m//g' | tail -20)
+            MSG="$MSG
+
+          ===== 国际版（尾部） =====
+          $IREPORT"
+          fi
+          # Telegram 单条上限 4096 字符
+          MSG=$(printf '%s' "$MSG" | head -c 3950)
+          curl -s --max-time 30 -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$(python3 -c "import json,sys; print(json.dumps({'chat_id': int('$TG_CHAT_ID'), 'text': sys.stdin.read()}))" <<< "$MSG")" \
+            | grep -o '"ok":true' || echo "TG 推送失败（不影响签到结果）"
 
       - name: No account configured
         if: ${{ always() && steps.config.outputs.cn != 'true' && steps.config.outputs.intl != 'true' }}
@@ -106,7 +143,7 @@ jobs:
         if: always() && github.event.repository.private == true
         run: |
           git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email  "github-actions[bot]@users.noreply.github.com"
           git add -f wb_refresh_tokens.json 2>/dev/null || true
           git add -f wb_intl_tokens.json 2>/dev/null || true
           git add -f workbuddy_benefit_state.json 2>/dev/null || true
