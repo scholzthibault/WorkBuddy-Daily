@@ -622,6 +622,10 @@ class TaskSnapshotTests(unittest.TestCase):
         module = load_functions(
             "_api_code_ok",
             "_claim_response_ok",
+            "_claim_receipt_is_confirmed",
+            "_task_code_of",
+            "_task_status_of",
+            "_task_is_done",
             "_summarize_task_completion",
             "task_cn",
             "build_summary",
@@ -652,9 +656,12 @@ class TaskSnapshotTests(unittest.TestCase):
             "level": 6,
             "streak": 2,
             "checkin_streak": 3,
+            "source_counts": {"desktop": 5, "mp": 3, "level": 5},
         }
         text = module["build_summary"]([summary])
-        self.assertIn("任务完成 2/4 项", text)
+        self.assertIn("桌面成长任务完成 2/4 项", text)
+        self.assertIn("任务行: 桌面5 / 小程序3 / 等级5", text)
+        self.assertIn("桌面任务未完成", text)
         self.assertIn("仅完成", text)
         self.assertIn("空回执", text)
 
@@ -833,9 +840,13 @@ class TaskSnapshotTests(unittest.TestCase):
             "_task_code_of",
             "_task_status_of",
             "_task_is_done",
-            "prog",
+            "_growth_task_rows",
+            "_growth_task_status_map",
+            "_accept_response_settled",
             "t_accept_all",
             BASE=BASE,
+            ACCEPT_BATCH_SETTLE=0,
+            ACCEPT_BATCH_TRIES=3,
             time=types.SimpleNamespace(sleep=sleeps.append),
             _accept_with_verify=lambda *args: True,
             ensure_first_buddy=lambda *args: True,
